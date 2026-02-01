@@ -1,4 +1,7 @@
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerMovement : MonoBehaviour
@@ -14,7 +17,13 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float dashCooldown = 10f;
     [SerializeField] private float dashAttractDuration = 5f;
     [SerializeField] private KeyCode dashKey = KeyCode.Mouse0;
-    
+
+    [Header("Dash UI (optional)")]
+    [Tooltip("Running man icon: shown when dash is charged, hidden when on cooldown.")]
+    [SerializeField] private GameObject dashChargedIcon;
+    [Tooltip("Left click hint icon: shown when dash is charged to remind player to press left click.")]
+    [SerializeField] private GameObject leftClickHintIcon;
+
     [Header("Torch Rotation")]
     [SerializeField] private float mouseDeadzoneRadius = 0.5f;
     [SerializeField, Range(0f, 90f)] private float torchClampAngle = 45f;
@@ -108,11 +117,13 @@ public class PlayerMovement : MonoBehaviour
             }
         }
 
-        // Check for dash input
-        if (Input.GetKeyDown(dashKey) && CanDash)
+        // Check for dash input (don't dash when clicking on UI, e.g. note close button)
+        if (Input.GetKeyDown(dashKey) && CanDash && !IsPointerOverUI())
         {
             StartDash();
         }
+
+        UpdateDashUI();
 
         // Get WASD input
         movementInput.x = Input.GetAxisRaw("Horizontal");
@@ -144,6 +155,36 @@ public class PlayerMovement : MonoBehaviour
         // Apply movement - use dash speed if dashing
         float currentSpeed = isDashing ? dashSpeed : moveSpeed;
         rb.linearVelocity = movementInput * currentSpeed;
+    }
+
+    /// <summary>Returns true if the mouse is over any UI that blocks raycasts (e.g. note panel, close button). Prevents dash when clicking UI.</summary>
+    private bool IsPointerOverUI()
+    {
+        if (EventSystem.current == null) return false;
+        var eventData = new PointerEventData(EventSystem.current) { position = Input.mousePosition };
+        var results = new List<RaycastResult>();
+        EventSystem.current.RaycastAll(eventData, results);
+        foreach (var r in results)
+        {
+            if (r.gameObject != null && r.module is GraphicRaycaster)
+                return true;
+        }
+        return false;
+    }
+
+    private void UpdateDashUI()
+    {
+        if (IsDead || (GameManager.Instance != null && GameManager.Instance.IsPaused))
+        {
+            if (dashChargedIcon != null) dashChargedIcon.SetActive(false);
+            if (leftClickHintIcon != null) leftClickHintIcon.SetActive(false);
+            return;
+        }
+        bool charged = CanDash;
+        if (dashChargedIcon != null)
+            dashChargedIcon.SetActive(charged);
+        if (leftClickHintIcon != null)
+            leftClickHintIcon.SetActive(charged);
     }
 
     private void StartDash()

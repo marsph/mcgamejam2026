@@ -24,7 +24,20 @@ public class TorchEffects : MonoBehaviour
     [Header("Radius Effect")]
     [SerializeField] private float minRadiusMultiplier = 0.6f;
 
+    [Header("Vision Level (noise-based)")]
+    [Tooltip("Noise below this = silent; vision keeps decreasing. Match enemy detection (e.g. 0.2) to find sweet spot.")]
+    [SerializeField, Range(0f, 1f)] private float quietThreshold = 0.2f;
+    [Tooltip("Vision multiplier drops by this much per second when silent.")]
+    [SerializeField, Min(0f)] private float visionDecreaseRate = 0.15f;
+    [Tooltip("Vision multiplier recovers by this much per second when making noise.")]
+    [SerializeField, Min(0f)] private float visionIncreaseRate = 0.4f;
+    [Tooltip("Minimum vision (how dim/small the torch can get when fully silent).")]
+    [SerializeField, Range(0.01f, 1f)] private float minVision = 0.25f;
+    [Tooltip("Maximum vision when fully recovered (usually 1).")]
+    [SerializeField, Range(0.5f, 1.5f)] private float maxVision = 1f;
+
     private float currentIntensityMultiplier = 1f;
+    private float visionLevel = 1f;
     private float flickerTimer;
     private float flickerOffset;
     private bool isFlickering;
@@ -48,6 +61,7 @@ public class TorchEffects : MonoBehaviour
         if (torchLight == null) return;
         
         float noiseLevel = GetNoiseLevel();
+        UpdateVisionLevel(noiseLevel);
         
         if (noiseLevel > noiseThreshold)
         {
@@ -59,6 +73,15 @@ public class TorchEffects : MonoBehaviour
         }
         
         ApplyLightSettings();
+    }
+
+    private void UpdateVisionLevel(float noiseLevel)
+    {
+        if (noiseLevel < quietThreshold)
+            visionLevel -= visionDecreaseRate * Time.deltaTime;
+        else
+            visionLevel += visionIncreaseRate * Time.deltaTime;
+        visionLevel = Mathf.Clamp(visionLevel, minVision, maxVision);
     }
 
     private float GetNoiseLevel()
@@ -97,20 +120,24 @@ public class TorchEffects : MonoBehaviour
 
     private void ApplyLightSettings()
     {
-        // Apply intensity with flicker
-        float finalIntensity = baseIntensity * currentIntensityMultiplier;
+        // Vision level (drains when silent, recovers when noisy) scales both intensity and radius
+        float visionScale = visionLevel;
+        float radiusMultiplierByVision = Mathf.Lerp(minRadiusMultiplier, 1f, visionScale);
+
+        // Apply intensity: vision scale * noise multiplier * flicker
+        float finalIntensity = baseIntensity * visionScale * currentIntensityMultiplier;
         
         if (isFlickering)
         {
-            // Add rapid flicker effect
             float flicker = Mathf.Sin(Time.time * flickerSpeed) * flickerOffset;
             finalIntensity += flicker;
         }
         
         torchLight.intensity = Mathf.Max(0.1f, finalIntensity);
         
-        // Also reduce radius slightly when intensity drops
-        float radiusMultiplier = Mathf.Lerp(minRadiusMultiplier, 1f, currentIntensityMultiplier);
+        // Radius: vision scale (and slight extra shrink from noise flicker when loud)
+        float radiusFromNoise = Mathf.Lerp(minRadiusMultiplier, 1f, currentIntensityMultiplier);
+        float radiusMultiplier = radiusMultiplierByVision * radiusFromNoise;
         torchLight.pointLightOuterRadius = baseOuterRadius * radiusMultiplier;
     }
 
